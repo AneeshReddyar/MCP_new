@@ -3,12 +3,12 @@
 MCP HTTP server (FastAPI) exposing:
 - initialize
 - list_tools
-- call_tool (get_available_services, schedule_car_service)
+- call_tool (get_available_services, schedule_pet_grooming)
 """
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from dotenv import load_dotenv
@@ -34,7 +34,8 @@ logging.basicConfig(
 )
 
 COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY", "")
-CONNECTED_ACCOUNT_ID = os.getenv("CONNECTED_ACCOUNT_ID", "")
+CONNECTED_ACCOUNT_ID_GMAIL = os.getenv("CONNECTED_ACCOUNT_ID_GMAIL", "")
+CONNECTED_ACCOUNT_ID_CALENDAR = os.getenv("CONNECTED_ACCOUNT_ID_CALENDAR", "")
 MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 ALLOW_ORIGINS = os.getenv("MCP_CORS_ORIGINS", "*")
 
@@ -59,9 +60,9 @@ else:
 # ----------------------------
 def _available_services() -> List[str]:
     return [
-        "Oil Change", "Brake Service", "Tire Rotation", "Engine Tune-up",
-        "Transmission Service", "Air Filter Replacement", "Battery Check",
-        "General Inspection", "Wheel Alignment", "AC Service",
+        "Full Groom", "Bath & Brush", "Nail Trim", "Ear Cleaning",
+        "Teeth Brushing", "De-shedding Treatment", "Flea Bath", "Puppy Introduction",
+        "Senior Pet Care", "Matting Removal", "Breed-Specific Cut", "Express Service",
     ]
 
 def _send_confirmation_email(to_email: str, subject: str, content: str) -> dict:
@@ -71,7 +72,7 @@ def _send_confirmation_email(to_email: str, subject: str, content: str) -> dict:
             return {"success": False, "result": f"Mock email to {to_email}"}
         result = composio.tools.execute(
             "GMAIL_SEND_EMAIL",
-            connected_account_id=CONNECTED_ACCOUNT_ID,
+            connected_account_id=CONNECTED_ACCOUNT_ID_GMAIL,
             arguments={"recipient_email": to_email, "subject": subject, "body": content},
         )
         return {"success": True, "result": result}
@@ -79,7 +80,47 @@ def _send_confirmation_email(to_email: str, subject: str, content: str) -> dict:
         logging.error(f"Email send error: {e}")
         return {"success": False, "error": str(e)}
 
-class CarServiceMCPServer:
+def _create_calendar_event(service_data: dict) -> dict:
+    try:
+        if not composio:
+            logging.warning("Mocking calendar event — Composio not initialized.")
+            return {"success": False, "result": "Mock calendar event created"}
+        
+        # Parse date and time to create proper datetime strings
+        date = service_data['date']
+        time = service_data['time']
+        
+        # Create start and end times (assuming 1 hour duration)
+        start_datetime = f"{date}T{time}:00"
+        start_dt = datetime.fromisoformat(start_datetime)
+        end_dt = start_dt + timedelta(hours=1)
+
+        event_data = {
+            "summary": f"Pet Grooming: {service_data['service_type']}",
+            "description": (
+                f"Pet Details: {service_data['pet_details']}\n"
+                f"Customer: {service_data['customer_name']}\n"
+                f"Phone: {service_data['phone_number']}\n"
+                f"Notes: {service_data.get('notes', '')}"
+            ),
+            # ✅ Corrected keys
+            "start_datetime": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "end_datetime": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "attendees": [service_data['customer_email']]
+        }
+        
+        result = composio.tools.execute(
+            "GOOGLECALENDAR_CREATE_EVENT",
+            connected_account_id=CONNECTED_ACCOUNT_ID_CALENDAR,
+            arguments=event_data,
+        )
+        return {"success": True, "result": result}
+    except Exception as e:
+        logging.error(f"Calendar event creation error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+class PetGroomingMCPServer:
     async def initialize(self, params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         logging.debug(f"🔄 initialize(params={params})")
         protocol_version = None
@@ -93,7 +134,7 @@ class CarServiceMCPServer:
         return {
             "protocolVersion": protocol_version or "0.1.0",
             "capabilities": capabilities,
-            "serverInfo": {"name": "car-service-mcp", "version": "1.0.0"},
+            "serverInfo": {"name": "pet-grooming-mcp", "version": "1.0.0"},
         }
 
     async def list_tools(self, _params: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -101,12 +142,12 @@ class CarServiceMCPServer:
         return [
             {
                 "name": "get_available_services",
-                "description": "List all available car services.",
+                "description": "List all available pet grooming services.",
                 "inputSchema": {"type": "object", "properties": {}},
             },
             {
-                "name": "schedule_car_service",
-                "description": "Schedule a car service booking.",
+                "name": "schedule_pet_grooming",
+                "description": "Schedule a pet grooming booking.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -116,13 +157,13 @@ class CarServiceMCPServer:
                         "customer_name": {"type": "string"},
                         "customer_email": {"type": "string"},
                         "phone_number": {"type": "string"},
-                        "vehicle_model": {"type": "string"},
+                        "pet_details": {"type": "string"},
                         "notes": {"type": "string"},
                     },
                     "required": [
                         "service_type", "date", "time",
                         "customer_name", "customer_email",
-                        "phone_number", "vehicle_model",
+                        "phone_number", "pet_details",
                     ],
                 },
             },
@@ -141,17 +182,17 @@ class CarServiceMCPServer:
         if name == "get_available_services":
             return _available_services()
 
-        if name == "schedule_car_service":
+        if name == "schedule_pet_grooming":
             required = [
                 "service_type", "date", "time",
                 "customer_name", "customer_email",
-                "phone_number", "vehicle_model",
+                "phone_number", "pet_details",
             ]
             missing = [k for k in required if k not in arguments]
             if missing:
                 raise ValueError(f"Missing required arguments: {missing}")
 
-            booking_id = f"CAR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            booking_id = f"PET-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             booking = {
                 "booking_id": booking_id,
                 "service_type": arguments["service_type"],
@@ -162,17 +203,17 @@ class CarServiceMCPServer:
                     "email": arguments["customer_email"],
                     "phone": arguments["phone_number"],
                 },
-                "vehicle": {"model": arguments["vehicle_model"]},
+                "pet": {"details": arguments["pet_details"]},
                 "notes": arguments.get("notes", ""),
                 "status": "confirmed",
                 "created_at": datetime.now().isoformat(),
             }
             
-            # UPDATE THIS PART - Enhanced email content
-            subject = f"🚗 Car Service Confirmation - {booking_id}"
+            # Enhanced email content
+            subject = f"🐾 Pet Grooming Confirmation - {booking_id}"
             content = f"""Dear {arguments['customer_name']},
 
-Thank you for choosing our car service! We are pleased to confirm your appointment.
+Thank you for choosing our pet grooming service! We are delighted to confirm your appointment.
 
 BOOKING DETAILS:
 • Booking ID: {booking_id}
@@ -181,31 +222,55 @@ BOOKING DETAILS:
 • Service Type: {arguments['service_type']}
 • Date: {arguments['date']}
 • Time: {arguments['time']}
-• Vehicle Model: {arguments['vehicle_model']}
+• Pet Details: {arguments['pet_details']}
 
-We look forward to servicing your vehicle. Please arrive 10 minutes early and bring your vehicle registration documents.
+We look forward to pampering your beloved pet! Please arrive 10 minutes early and ensure your pet is on a leash or in a carrier for their safety.
 
-If you need to reschedule or have any questions, please contact us at your earliest convenience.
+WHAT TO BRING:
+• Your pet's vaccination records (if first visit)
+• Any special brushes or tools your pet prefers
+• Information about any skin sensitivities or behavioral notes
+
+If you need to reschedule or have any questions about our services, please contact us at your earliest convenience.
 
 Best regards,
-Car Service Team"""
+Pet Grooming Team
+🐕🐱✨"""
             
             email_result = _send_confirmation_email(arguments["customer_email"], subject, content)
+            
+            # Create calendar event after email attempt
+            calendar_result = {"success": False, "result": "Not attempted"}
+            if email_result.get("success"):
+                calendar_data = {
+                    "service_type": arguments["service_type"],
+                    "date": arguments["date"],
+                    "time": arguments["time"],
+                    "customer_name": arguments["customer_name"],
+                    "customer_email": arguments["customer_email"],
+                    "phone_number": arguments["phone_number"],
+                    "pet_details": arguments["pet_details"],
+                    "notes": arguments.get("notes", "")
+                }
+                calendar_result = _create_calendar_event(calendar_data)
+
             return {
                 "success": True,
                 "booking": booking,
                 "email_sent": bool(email_result.get("success")),
                 "email_details": email_result.get("result"),
+                "calendar_event_created": bool(calendar_result.get("success")),
+                "calendar_details": calendar_result.get("result"),
             }
 
         raise ValueError(f"Unknown tool: {name}")
 
-server_impl = CarServiceMCPServer()
+server_impl = PetGroomingMCPServer()
 
 # ----------------------------
 # FastAPI app
 # ----------------------------
-app = FastAPI(title="MCP HTTP Server (Car Service)")
+app = FastAPI(title="MCP HTTP Server (Pet Grooming)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -217,7 +282,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "server": "car-service-mcp", "version": "1.0.0"}
+    return {"ok": True, "server": "pet-grooming-mcp", "version": "1.0.0"}
 
 @app.post("/mcp")
 async def mcp_endpoint(request: Request):

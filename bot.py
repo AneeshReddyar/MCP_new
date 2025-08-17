@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enhanced Pipecat Bot with MCP Server Integration for Car Service."""
+"""Enhanced Pipecat Bot with MCP Server Integration for Pet Grooming Service."""
 
 import os
 import json
@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 from loguru import logger
 
-print("🚀 Starting Enhanced Pipecat bot with MCP Car Service...")
+print("🐾 Starting Enhanced Pipecat bot with MCP Pet Grooming Service...")
 print("⏳ Loading AI models and MCP client...\n")
 
 logger.info("Loading Silero VAD model...")
@@ -82,7 +82,7 @@ class MCPHTTPClient:
         return await self._rpc("initialize", {
             "protocolVersion": "0.1.0",
             "capabilities": {},
-            "clientInfo": {"name": "pipecat-car-service-bot", "version": "1.0.0"},
+            "clientInfo": {"name": "pipecat-pet-grooming-bot", "version": "1.0.0"},
         })
 
     async def list_tools(self):
@@ -117,9 +117,9 @@ class MCPManager:
 mcp_manager = MCPManager()
 
 async def get_available_services_function(params: FunctionCallParams):
-    """Get available car services from MCP server."""
+    """Get available pet grooming services from MCP server."""
     try:
-        logger.info("Getting available car services...")
+        logger.info("Getting available pet grooming services...")
         
         result = await mcp_manager.call_mcp_tool("get_available_services", {})
         
@@ -146,8 +146,8 @@ async def get_available_services_function(params: FunctionCallParams):
             "message": f"Failed to get available services: {str(e)}"
         })
 
-async def schedule_car_service_function(params: FunctionCallParams):
-    """Schedule a car service appointment using MCP server."""
+async def schedule_pet_grooming_function(params: FunctionCallParams):
+    """Schedule a pet grooming appointment using MCP server."""
     try:
         service_type = params.arguments.get("service_type")
         date = params.arguments.get("date")
@@ -155,10 +155,10 @@ async def schedule_car_service_function(params: FunctionCallParams):
         customer_name = params.arguments.get("customer_name")
         customer_email = params.arguments.get("customer_email")
         phone_number = params.arguments.get("phone_number")
-        vehicle_model = params.arguments.get("vehicle_model")
+        pet_details = params.arguments.get("pet_details")
         notes = params.arguments.get("notes", "")
         
-        logger.info(f"Scheduling car service: {service_type} for {customer_name}")
+        logger.info(f"Scheduling pet grooming: {service_type} for {customer_name}")
         
         # Prepare arguments for MCP call
         mcp_arguments = {
@@ -168,12 +168,12 @@ async def schedule_car_service_function(params: FunctionCallParams):
             "customer_name": customer_name,
             "customer_email": customer_email,
             "phone_number": phone_number,
-            "vehicle_model": vehicle_model,
+            "pet_details": pet_details,
             "notes": notes
         }
         
         # Call MCP server
-        result = await mcp_manager.call_mcp_tool("schedule_car_service", mcp_arguments)
+        result = await mcp_manager.call_mcp_tool("schedule_pet_grooming", mcp_arguments)
         
         # Process the result
         if isinstance(result, dict) and result.get("success"):
@@ -183,7 +183,7 @@ async def schedule_car_service_function(params: FunctionCallParams):
             
             response = {
                 "status": "success",
-                "message": f"Car service appointment scheduled successfully! Booking ID: {booking_id}. " +
+                "message": f"Pet grooming appointment scheduled successfully! Booking ID: {booking_id}. " +
                           f"{'Confirmation email sent.' if email_sent else 'Email notification failed.'}",
                 "booking_id": booking_id,
                 "booking_details": booking
@@ -191,22 +191,22 @@ async def schedule_car_service_function(params: FunctionCallParams):
         else:
             response = {
                 "status": "error",
-                "message": "Failed to schedule car service appointment"
+                "message": "Failed to schedule pet grooming appointment"
             }
         
         await params.result_callback(response)
         
     except Exception as e:
-        logger.error(f"Error scheduling car service: {str(e)}")
+        logger.error(f"Error scheduling pet grooming: {str(e)}")
         await params.result_callback({
             "status": "error",
-            "message": f"Failed to schedule car service: {str(e)}"
+            "message": f"Failed to schedule pet grooming: {str(e)}"
         })
 
 async def run_bot(url: str, token: str, room_name: str):
     """Run the bot with LiveKit transport."""
     
-    logger.info(f"Starting enhanced bot with MCP Car Service and LiveKit transport")
+    logger.info(f"Starting enhanced bot with MCP Pet Grooming Service and LiveKit transport")
     logger.info(f"LiveKit URL: {url}, Room: {room_name}")
 
     # Initialize services
@@ -219,21 +219,21 @@ async def run_bot(url: str, token: str, room_name: str):
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
 
-    # Define function schemas for car service operations
+    # Define function schemas for pet grooming operations
     get_services_function = FunctionSchema(
         name="get_available_services",
-        description="Get a list of available car services",
+        description="Get a list of available pet grooming services",
         properties={},
         required=[]
     )
     
     schedule_service_function = FunctionSchema(
-        name="schedule_car_service",
-        description="Schedule a car service appointment",
+        name="schedule_pet_grooming",
+        description="Schedule a pet grooming appointment",
         properties={
             "service_type": {
                 "type": "string",
-                "description": "Type of car service needed (e.g., Oil Change, Brake Service, Tire Rotation)"
+                "description": "Type of pet grooming service needed (e.g., Full Groom, Bath & Brush, Nail Trim, Flea Treatment)"
             },
             "date": {
                 "type": "string", 
@@ -255,43 +255,51 @@ async def run_bot(url: str, token: str, room_name: str):
                 "type": "string",
                 "description": "Customer's phone number"
             },
-            "vehicle_model": {
+            "pet_details": {
                 "type": "string",
-                "description": "Vehicle make and model"
+                "description": "Pet name, breed, size, age, and any special characteristics or behavioral notes"
             },
             "notes": {
                 "type": "string",
-                "description": "Additional notes or special requests"
+                "description": "Additional notes, special requests, or health considerations for the pet"
             }
         },
-        required=["service_type", "date", "time", "customer_name", "customer_email", "phone_number", "vehicle_model"]
+        required=["service_type", "date", "time", "customer_name", "customer_email", "phone_number", "pet_details"]
     )
     
     # Create tools schema
     tools = ToolsSchema(standard_tools=[get_services_function, schedule_service_function])
 
-    # Register function handlers - THIS IS THE CRITICAL PART THAT WORKS IN YOUR GOOGLE BOT
+    # Register function handlers - THIS IS THE CRITICAL PART THAT WORKS IN YOUR CAR SERVICE BOT
     llm.register_function("get_available_services", get_available_services_function)
-    llm.register_function("schedule_car_service", schedule_car_service_function)
+    llm.register_function("schedule_pet_grooming", schedule_pet_grooming_function)
 
     messages = [
         {
             "role": "system",
-            "content": """You are a helpful car service scheduling assistant with access to our car service system.
-            You can help customers:
-            1. Check available car services - use get_available_services function
-            2. Schedule car service appointments - use schedule_car_service function
+            "content": """You are a friendly and caring pet grooming scheduling assistant with access to our pet grooming system.
+            You can help pet parents:
+            1. Check available pet grooming services - use get_available_services function
+            2. Schedule pet grooming appointments - use schedule_pet_grooming function
             
-            When customers ask about services, first get the available services list.
-            When scheduling appointments, gather all required information:
-            - Service type (from available services)
+            When customers ask about services, first get the available services list to provide accurate options.
+            When scheduling appointments, gather all required information warmly and thoroughly:
+            - Service type (from available services like Full Groom, Bath & Brush, Nail Trim, etc.)
             - Date and time for appointment
-            - Customer name, email, and phone number  
-            - Vehicle make and model
-            - Any special notes or requests
+            - Pet parent's name, email, and phone number  
+            - Detailed pet information (name, breed, size, age, temperament, special needs)
+            - Any special notes, health considerations, or requests
             
-            Always confirm the appointment details before scheduling. Be friendly, professional, 
-            and conversational. Keep responses brief for voice interaction.""",
+            Be especially attentive to:
+            - Pet's comfort and anxiety levels
+            - Any health conditions or medications
+            - Previous grooming experiences
+            - Breed-specific grooming requirements
+            - Special handling needs for nervous pets
+            
+            Always confirm the appointment details before scheduling and express enthusiasm about pampering their furry friend. 
+            Be warm, professional, and show genuine care for both the pets and their parents. 
+            Keep responses conversational and brief for voice interaction while being thorough about pet safety and care.""",
         },
     ]
 
@@ -340,7 +348,7 @@ async def run_bot(url: str, token: str, room_name: str):
         # Greet the user when they connect
         messages.append({
             "role": "system", 
-            "content": "Greet the user warmly and let them know you can help them check available car services and schedule appointments."
+            "content": "Greet the user warmly and let them know you're excited to help them schedule grooming services for their beloved pet. Ask about their furry friend and what services they might need."
         })
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 
@@ -363,8 +371,8 @@ if __name__ == "__main__":
         raise ValueError("LiveKit configuration incomplete. Please set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET")
 
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Car Service Bot with LiveKit")
-    parser.add_argument("--room", type=str, default="car-service-room", help="Room name to join")
+    parser = argparse.ArgumentParser(description="Pet Grooming Bot with LiveKit")
+    parser.add_argument("--room", type=str, default="pet-grooming-room", help="Room name to join")
     args = parser.parse_args()
 
     room_name = args.room
@@ -372,14 +380,14 @@ if __name__ == "__main__":
     # Generate a token for the bot
     token = (
         api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
-        .with_identity("car-service-agent")
-        .with_name("Car Service Assistant")
+        .with_identity("pet-grooming-agent")
+        .with_name("Pet Grooming Assistant")
         .with_grants(api.VideoGrants(room_join=True, room=room_name))
         .to_jwt()
     )
 
     logger.info(f"Bot will join room: {room_name}")
-    logger.info(f"Bot identity: car-service-agent")
+    logger.info(f"Bot identity: pet-grooming-agent")
 
     # Run the bot
     asyncio.run(run_bot(LIVEKIT_URL, token, room_name))

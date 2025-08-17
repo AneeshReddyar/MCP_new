@@ -1,6 +1,3 @@
-# Requirements for MCP Server + LiveKit Agent + Token Server
-# Files: mcp_server.py + agent.py + token_server.py
-
 # Core Python dependencies
 python-dotenv>=1.0.0
 
@@ -10,6 +7,7 @@ httpx>=0.25.0
 # MCP Server (FastAPI)
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
 
 # LiveKit Agent dependencies
 livekit>=0.8.0
@@ -21,17 +19,28 @@ livekit-plugins-silero>=0.8.0
 flask>=2.3.0
 flask-cors>=4.0.0
 
-# AI service for agent
-openai>=1.3.0
+# Pipecat Bot dependencies
+pipecat-ai>=0.0.1
+loguru>=0.7.0
 
-# Audio processing for Silero VAD
+# AI/ML service dependencies
+openai>=1.3.0
+deepgram-sdk>=3.2.0
+cartesia>=1.0.0
+
+# Audio processing
+silero-vad>=4.0.0
 torch>=2.1.0
 torchaudio>=2.1.0
 numpy>=1.24.0
 
-# Email integration (optional - for Composio in MCP server)
-composio>=0.3.0
+# WebRTC transport for Pipecat
+aiortc>=1.6.0
 
 # Additional utilities
+aiohttp>=3.9.0
+websockets>=12.0
 pydantic>=2.5.0
-python-multipart>=0.0.6
+
+# Email integration (optional - for Composio in MCP server)
+composio>=0.3.0

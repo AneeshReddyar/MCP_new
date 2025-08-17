@@ -22,20 +22,17 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIProcessor
-from pipecat.runner.types import RunnerArguments
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.services.llm_service import FunctionCallParams
 
 logger.info("✅ Pipeline components loaded")
 
-logger.info("Loading WebRTC transport...")
-from pipecat.transports.network.small_webrtc import SmallWebRTCTransport
+logger.info("Loading LiveKit transport...")
+from pipecat.transports.services.livekit import LiveKitTransport, LiveKitParams
 
 logger.info("✅ All components loaded successfully!")
 
@@ -45,6 +42,11 @@ load_dotenv(override=True)
 MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 MCP_HOST = os.getenv("MCP_HOST", "http://localhost")
 MCP_SERVER_URL = f"{MCP_HOST}:{MCP_PORT}/mcp"
+
+# LiveKit Configuration
+LIVEKIT_URL = os.getenv("LIVEKIT_URL")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 
 class MCPHTTPClient:
     """HTTP client for communicating with MCP server."""
@@ -201,9 +203,13 @@ async def schedule_car_service_function(params: FunctionCallParams):
             "message": f"Failed to schedule car service: {str(e)}"
         })
 
-async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
-    logger.info(f"Starting enhanced bot with MCP Car Service")
+async def run_bot(url: str, token: str, room_name: str):
+    """Run the bot with LiveKit transport."""
+    
+    logger.info(f"Starting enhanced bot with MCP Car Service and LiveKit transport")
+    logger.info(f"LiveKit URL: {url}, Room: {room_name}")
 
+    # Initialize services
     stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
 
     tts = CartesiaTTSService(
@@ -292,15 +298,27 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     context = OpenAILLMContext(messages, tools)
     context_aggregator = llm.create_context_aggregator(context)
 
-    rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
+    # Initialize LiveKit transport
+    transport = LiveKitTransport(
+        url=url,
+        token=token,
+        room_name=room_name,
+        params=LiveKitParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+        )
+    )
 
+    rtvi = None  # Remove RTVI processor to avoid compatibility issues
+
+    # Build pipeline
     pipeline = Pipeline(
         [
             transport.input(),  # Transport user input
-            rtvi,  # RTVI processor
             stt,  # Speech to text
             context_aggregator.user(),  # User responses
-            llm,  # LLM with function calling - THIS TRIGGERS THE MCP CALLS
+            llm,  # LLM with function calling
             tts,  # Text to speech
             transport.output(),  # Transport bot output
             context_aggregator.assistant(),  # Assistant spoken responses
@@ -313,45 +331,55 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[RTVIObserver(rtvi)],
+        # Remove RTVI observer
     )
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        logger.info(f"Client connected")
-        # Kick off the conversation.
+    @transport.event_handler("on_first_participant_joined")
+    async def on_first_participant_joined(transport, participant):
+        logger.info(f"First participant joined: {participant}")
+        # Greet the user when they connect
         messages.append({
             "role": "system", 
             "content": "Greet the user warmly and let them know you can help them check available car services and schedule appointments."
         })
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 
-    @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client):
-        logger.info(f"Client disconnected")
+    @transport.event_handler("on_participant_disconnected")
+    async def on_participant_disconnected(transport, participant):
+        logger.info(f"Participant disconnected: {participant}")
         await task.cancel()
 
-    runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
-
+    # Run the pipeline
+    runner = PipelineRunner(handle_sigint=False)  # Disable signal handling for Windows
     await runner.run(task)
 
+if __name__ == "__main__":
+    import argparse
+    import asyncio
+    from livekit import api
 
-async def bot(runner_args: RunnerArguments):
-    """Main bot entry point for the bot starter."""
+    # Validate LiveKit configuration
+    if not all([LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET]):
+        raise ValueError("LiveKit configuration incomplete. Please set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET")
 
-    transport = SmallWebRTCTransport(
-        params=TransportParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-        ),
-        webrtc_connection=runner_args.webrtc_connection,
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Car Service Bot with LiveKit")
+    parser.add_argument("--room", type=str, default="car-service-room", help="Room name to join")
+    args = parser.parse_args()
+
+    room_name = args.room
+    
+    # Generate a token for the bot
+    token = (
+        api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+        .with_identity("car-service-agent")
+        .with_name("Car Service Assistant")
+        .with_grants(api.VideoGrants(room_join=True, room=room_name))
+        .to_jwt()
     )
 
-    await run_bot(transport, runner_args)
+    logger.info(f"Bot will join room: {room_name}")
+    logger.info(f"Bot identity: car-service-agent")
 
-
-if __name__ == "__main__":
-    from pipecat.runner.run import main
-
-    main()
+    # Run the bot
+    asyncio.run(run_bot(LIVEKIT_URL, token, room_name))
